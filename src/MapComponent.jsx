@@ -70,7 +70,6 @@ function MapComponent({
   onLog = () => {},
   onEnterNoFlyZone = () => {}, // Prop สำหรับแจ้งเตือน "เข้า"
   onExitNoFlyZone = () => {}, // Prop ใหม่สำหรับแจ้งเตือน "ออก"
-  onDronesUpdate = () => {}, // Prop ใหม่: ส่งข้อมูลโดรนทั้งหมดกลับไป
   displayedDroneId = null, // Prop ใหม่: ID ของโดรนที่กำลังแสดงผลใน side panel
   drones = [] // Prop ใหม่: รับข้อมูลโดรนจากภายนอก
 }) {
@@ -91,8 +90,6 @@ function MapComponent({
   const fetchTimerRef = useRef(null);
   const clockTimerRef = useRef(null);
   const mapRef = useRef(null);
-
-  const [selectedDroneId, setSelectedDroneId] = useState(null);
 
   // สถานะสำหรับ No-fly zone
   const [noFlyZone] = useState({
@@ -174,27 +171,6 @@ function MapComponent({
     };
   }, [weather?.timezoneOffsetSec]);
 
-  const activeDrone = selectedDroneId != null ? drones.find(d => d.id === selectedDroneId) : null;
-
-  // เมื่อ activeDrone เปลี่ยนแปลง ให้ส่งข้อมูลกลับไปที่ App component
-  useEffect(() => {
-    onDroneChange(activeDrone);
-  }, [activeDrone, onDroneChange]);
-
-  // ส่งข้อมูลโดรนทั้งหมดกลับไปเมื่อมีการอัปเดต
-  useEffect(() => {
-    onDronesUpdate(drones);
-  }, [drones, onDronesUpdate]);
-
-  useEffect(() => {
-    if (selectedDroneId != null) {
-      const current = drones.find(d => d.id === selectedDroneId);
-      if (!current) {
-        setSelectedDroneId(null);
-      }
-    }
-  }, [selectedDroneId, drones]);
-
   useEffect(() => {
     if (isFullscreen) {
       const originalOverflow = document.body.style.overflow;
@@ -213,6 +189,28 @@ function MapComponent({
       mapRef.current.getMap().resize();
     }
   }, [isFullscreen]);
+
+  // Check for drones entering/exiting the no-fly zone
+  useEffect(() => {
+    if (!noFlyZone.show) return;
+
+    const center = noFlyZone.center;
+    const radiusKm = noFlyZone.radiusKm;
+
+    drones.forEach(drone => {
+      if (!drone.visible) return;
+
+      const distance = getDistanceFromLatLonInKm(center.lat, center.lng, drone.lat, drone.lng);
+      const wasInNFZ = drone.isInNFZ;
+      const isInNFZ = distance <= radiusKm;
+
+      if (isInNFZ && !wasInNFZ) {
+        onEnterNoFlyZone(drone);
+      } else if (!isInNFZ && wasInNFZ) {
+        onExitNoFlyZone(drone);
+      }
+    });
+  }, [drones, noFlyZone, onEnterNoFlyZone, onExitNoFlyZone]);
 
   return (
     <div className={`map-container${isFullscreen ? ' map-container--fullscreen' : ''}`}>
@@ -341,6 +339,28 @@ function MapComponent({
           />
         </Source>
       )}
+
+      {/* แสดงผลโดรนแต่ละตัวเป็นไอคอนบนแผนที่ */}
+      {drones.map(drone => (
+        drone.visible && <Marker // ใช้ `drones` จาก props โดยตรง
+          key={drone.id}
+          longitude={drone.lng}
+          latitude={drone.lat}
+          anchor="bottom"
+          onClick={(e) => {
+            // ป้องกันไม่ให้ event click ของแผนที่ทำงาน
+            e.originalEvent.stopPropagation();
+            onDroneChange(drone);
+          }}
+        >
+          <div className={`drone-icon-container ${drone.isInNFZ ? 'in-nfz' : ''} ${drone.id === displayedDroneId ? 'selected' : ''}`}>
+            <img 
+              src={drone.mapIconUrl || '/Drone.png'} 
+              alt={drone.id} 
+              style={{ width: '48px', height: '48px', cursor: 'pointer' }} />
+          </div>
+        </Marker>
+      ))}
 
       {/* กล่องสภาพอากาศ + เวลา (ขวาบน) */}
       <div

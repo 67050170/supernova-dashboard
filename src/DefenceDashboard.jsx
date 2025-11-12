@@ -5,24 +5,81 @@ import { io } from 'socket.io-client'; // Import socket.io-client
 import MapComponent from './MapComponent';
 import './App.css';
 
+const getDroneInfoImageUrl = (size) => {
+  switch (size) {
+    case 'small':
+      return '/small.png';
+    case 'medium':
+      return '/medium.png';
+    case 'large':
+      return '/large.png';
+    default:
+      return '/Drone.png';
+  }
+};
 // สร้าง Reducer เพื่อจัดการ State ที่ซับซ้อน
 const droneStateReducer = (state, action) => {
   switch (action.type) {
-    case 'UPDATE_ALL_DRONES':
-      const visibleDrones = action.payload.filter(d => d.visible);
-      // หากโดรنที่แสดงอยู่หายไป ให้เลือกตัวแรกที่มองเห็นได้แทน
-      const newDisplayedId = state.displayedDroneId && visibleDrones.some(d => d.id === state.displayedDroneId)
-        ? state.displayedDroneId
-        : visibleDrones[0]?.id || null;
-      return { ...state, allDrones: action.payload, displayedDroneId: newDisplayedId };
+    case 'UPDATE_FROM_AI': {
+      const aiData = action.payload;
+      // สมมติว่าข้อมูลที่ได้จาก AI มีโครงสร้าง { id, lat, lng, size, ... }
+      // และเราจะอัปเดตหรือเพิ่มโดรนใหม่เข้าไปใน state
+      const existingDroneIndex = state.allDrones.findIndex(d => d.id === aiData.id);
+      const droneWithImages = { 
+        ...aiData, 
+        mapIconUrl: '/Drone.png', // Generic icon for the map
+        imageUrl: getDroneInfoImageUrl(aiData.size) // Specific image for the info panel
+      };
+      let newDrones = [...state.allDrones];
+
+      if (existingDroneIndex !== -1) {
+        // อัปเดตโดรนที่มีอยู่แล้ว
+        newDrones[existingDroneIndex] = { ...newDrones[existingDroneIndex], ...droneWithImages, visible: true, lastSeen: Date.now() };
+      } else {
+        // เพิ่มโดรนใหม่
+        newDrones.push({ ...droneWithImages, visible: true, lastSeen: Date.now() });
+      }
+
+      // ส่ง state ที่อัปเดตแล้วกลับไป
+      return {
+        ...state,
+        allDrones: newDrones,
+        displayedDroneId: aiData.id, // Automatically display the new/updated drone
+      };
+    }
     case 'SET_CLICKED_DRONE':
       return { ...state, displayedDroneId: action.payload?.id || state.displayedDroneId };
-    case 'CYCLE_DRONE':
+    case 'CYCLE_DRONE': {
       const currentVisible = state.allDrones.filter(d => d.visible);
       if (currentVisible.length === 0) return state;
       const currentIndex = currentVisible.findIndex(d => d.id === state.displayedDroneId);
       const nextIndex = (currentIndex + action.payload.direction + currentVisible.length) % currentVisible.length;
       return { ...state, displayedDroneId: currentVisible[nextIndex].id };
+    }
+    case 'HIDE_OLD_DRONES': {
+        const now = Date.now();
+        const newDrones = state.allDrones.map(drone => ({
+            ...drone,
+            visible: (now - drone.lastSeen) < action.payload.timeout,
+        }));
+        const displayedDroneIsVisible = newDrones.some(d => d.id === state.displayedDroneId && d.visible);
+        const newDisplayedId = displayedDroneIsVisible ? state.displayedDroneId : newDrones.find(d => d.visible)?.id || null;
+        return { ...state, allDrones: newDrones, displayedDroneId: newDisplayedId };
+    }
+    case 'UPDATE_DRONE_NFZ_STATUS': {
+      const { droneId, isInNFZ } = action.payload;
+      const droneIndex = state.allDrones.findIndex(d => d.id === droneId);
+      if (droneIndex === -1) return state;
+
+      const newDrones = [...state.allDrones];
+      const updatedDrone = { ...newDrones[droneIndex], isInNFZ };
+      newDrones[droneIndex] = updatedDrone;
+
+      return {
+        ...state,
+        allDrones: newDrones,
+      };
+    }
     default:
       return state;
   }
@@ -85,6 +142,7 @@ function DefenceDashboard({ onLogout }) {
   const handleEnterNFZ = useCallback((drone) => {
     setDronesInNFZ(prev => {
       if (!prev.includes(drone.id)) { // ป้องกันการเพิ่มซ้ำ
+        dispatchDroneState({ type: 'UPDATE_DRONE_NFZ_STATUS', payload: { droneId: drone.id, isInNFZ: true } });
         addLogMessage(`🚨 คำเตือน: วัตถุ ID: ${drone.id} เข้าสู่พื้นที่หวงห้าม!`);
         return [...prev, drone.id];
       }
@@ -95,6 +153,7 @@ function DefenceDashboard({ onLogout }) {
   // เมื่อโดรนออกจากพื้นที่: เอา ID ออกจาก Array
   const handleExitNFZ = useCallback((drone) => {
     addLogMessage(`✅ วัตถุ ID: ${drone.id} ออกจากพื้นที่หวงห้าม`);
+    dispatchDroneState({ type: 'UPDATE_DRONE_NFZ_STATUS', payload: { droneId: drone.id, isInNFZ: false } });
     setDronesInNFZ(prev => prev.filter(id => id !== drone.id));
   }, [addLogMessage]);
 
@@ -107,22 +166,29 @@ function DefenceDashboard({ onLogout }) {
 
   // --- Real-time Data Integration ---
   // This is the camera ID for the defence dashboard
-  const camId = '228594f4-edca-4027-9f8e-54c995240bc5'; 
+  const camId = '228594f4-edca-4027-9f8e-54c995240bc5';
+  // Always use the real socket connection
   const { realtimeData } = useSocket(camId, true);
 
   // When new real-time data arrives, add it to the log
   useEffect(() => {
     if (realtimeData) {
       addLogMessage(`📡 [REAL-TIME] AI detected object. Camera: ${realtimeData.camera_id}`);
-      // Here you would typically update your drone/object state with the new data.
-      // For this example, we'll just log it. In a real app, you might do:
-      // dispatchDroneState({ type: 'UPDATE_FROM_AI', payload: realtimeData });
+      // อัปเดต state ของโดรนด้วยข้อมูลที่ได้รับจาก AI
+      // The payload from /api/ai-data is the drone data itself.
+      if (realtimeData.id) {
+        dispatchDroneState({ type: 'UPDATE_FROM_AI', payload: realtimeData });
+      }
     }
   }, [realtimeData, addLogMessage]);
 
-  // รับข้อมูลโดรนทั้งหมดจาก MapComponent
-  const handleDronesUpdate = useCallback((drones) => {
-    dispatchDroneState({ type: 'UPDATE_ALL_DRONES', payload: drones });
+  // Effect สำหรับซ่อนโดรนที่ขาดการติดต่อ
+  useEffect(() => {
+    const interval = setInterval(() => {
+      dispatchDroneState({ type: 'HIDE_OLD_DRONES', payload: { timeout: 10000 } }); // 10 วินาที
+    }, 2000); // เช็คทุก 2 วินาที
+
+    return () => clearInterval(interval);
   }, []);
 
   // หาข้อมูลโดรนที่กำลังแสดงผล
@@ -149,12 +215,12 @@ function DefenceDashboard({ onLogout }) {
 
       <div className="dashboard-layout">
         <div className="map-panel">
-          <MapComponent 
+          <MapComponent
+            drones={allDrones}
             onDroneChange={(drone) => dispatchDroneState({ type: 'SET_CLICKED_DRONE', payload: drone })}
             onLog={addLogMessage} 
             onEnterNoFlyZone={handleEnterNFZ}
             onExitNoFlyZone={handleExitNFZ}
-            onDronesUpdate={handleDronesUpdate}
             displayedDroneId={displayedDroneId} />
         </div>
         <div className="side-panel">
@@ -196,7 +262,7 @@ function DefenceDashboard({ onLogout }) {
                 </h3>
                 <div style={{ padding: '16px', backgroundColor: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', marginBottom: '16px' }}>
                   <img
-                    src={`/${displayedDrone.size}.png`}
+                    src={displayedDrone.imageUrl || "/Drone.png"}
                     onClick={() => handleImageClick(displayedDrone)}
                     alt={`โดรน ${displayedDrone.id}`}
                     style={{ width: '100%', maxWidth: '150px', height: 'auto', filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.15))', cursor: 'pointer' }}
@@ -204,8 +270,9 @@ function DefenceDashboard({ onLogout }) {
                 </div>
                 <div style={{ fontSize: '14px', textAlign: 'left', background: '#f9f9f9', padding: '12px', borderRadius: '6px', color: '#000' }}>
                   <div><strong>ID:</strong> {displayedDrone.id}</div>
-                  <div><strong>ขนาด:</strong> {displayedDrone.size} ({displayedDrone.sizePx}px)</div>
+                  <div><strong>ขนาด:</strong> {displayedDrone.size}</div>
                   <div><strong>พิกัด:</strong> {displayedDrone.lat.toFixed(4)}, {displayedDrone.lng.toFixed(4)}</div>
+                  <div><strong>ความสูง:</strong> {displayedDrone.alt ? `${displayedDrone.alt.toFixed(1)} m` : 'N/A'}</div>
                 </div>
                 {allDrones.filter(d => d.visible).length > 1 && (
                   <div className="drone-cycle-controls">
@@ -235,7 +302,7 @@ function DefenceDashboard({ onLogout }) {
               &times;
             </button>
             <img
-              src={`/${popupDrone.size}.png`}
+              src={popupDrone.imageUrl || "/Drone.png"}
               alt={`โดรน ${popupDrone.id}`}
               style={{
                 maxWidth: '100%',

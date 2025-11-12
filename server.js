@@ -42,23 +42,6 @@ const USERS = {
   }
 };
 
-// --- Socket.IO Connection Handling ---
-io.on('connection', (socket) => {
-  console.log('🔌 A client connected to Socket.IO');
-
-  // Handle camera subscription
-  socket.on('subscribe_camera', (data) => {
-    if (data && data.cam_id) {
-      console.log(`📡 Client subscribed to camera: ${data.cam_id}`);
-      socket.join(data.cam_id); // Join a room based on camera ID
-    }
-  });
-
-  socket.on('disconnect', () => {
-    console.log('🔌 A client disconnected');
-  });
-});
-
 // --- API Routes ---
 
 // Route สำหรับรับข้อมูลจาก AI
@@ -73,15 +56,29 @@ app.post('/api/ai-data', (req, res) => {
   }
 
   try {
-    const { camera_id, other_data } = req.body;
-    console.log('ได้รับข้อมูลจาก AI:');
-    console.log('  Camera ID:', camera_id);
-    if (other_data) {
-      console.log('  Other Data:', other_data);
+    const { camera_id, other_data } = req.body; // other_data is expected to contain drone info
+
+    if (!camera_id || !other_data) {
+      return res.status(400).json({ message: 'ข้อมูลไม่ครบถ้วน, ต้องการ camera_id และ other_data' });
     }
 
-    // 5. Broadcast the new data to the specific camera room
-    io.to(camera_id).emit('object_detection', { camera_id, other_data, timestamp: new Date() });
+    // Destructure drone data for clarity and validation
+    const { id, lat, lng, height, size, imageUrl, ...restOfData } = other_data;
+
+    if (id === undefined || lat === undefined || lng === undefined) {
+      console.warn('ได้รับข้อมูล AI ที่ไม่มี id, lat, หรือ lng:', other_data);
+      return res.status(400).json({ message: 'ข้อมูล other_data ไม่ครบถ้วน, ต้องการ id, lat, และ lng' });
+    }
+
+    console.log('ได้รับข้อมูลจาก AI:');
+    console.log(`  Camera ID: ${camera_id}`);
+    console.log(`  Object ID: ${id}, Lat: ${lat}, Lng: ${lng}, Height: ${height}`);
+
+    // Broadcast a well-structured object to the specific camera room
+    // สร้าง imageUrl สำรองถ้าไม่มีการส่งมา
+    const finalImageUrl = imageUrl || `/${size || 'default'}.png`;
+    const payload = { id, lat, lng, height, size, imageUrl: finalImageUrl, ...restOfData, camera_id, timestamp: new Date() };
+    io.to(camera_id).emit('object_detection', payload);
 
     res.status(200).json({ message: 'ได้รับข้อมูลเรียบร้อย' });
   } catch (error) {
@@ -106,6 +103,43 @@ app.post('/api/login', (req, res) => {
     // Login ไม่สำเร็จ
     res.status(401).json({ message: 'Camera ID หรือ Token ไม่ถูกต้อง' });
   }
+});
+
+// New endpoint to receive drone reports via POST
+app.post('/api/report', (req, res) => {
+  const { camera_id, other_data } = req.body;
+
+  if (!camera_id || !other_data || !other_data.id) {
+    return res.status(400).json({ message: 'Missing camera_id or other_data' });
+  }
+
+  console.log(`Received API report for camera ${camera_id}:`, other_data);
+
+  // Broadcast the data to clients subscribed to this camera_id
+  // The room name is the camera_id
+  io.to(camera_id).emit('object_detection', {
+    camera_id,
+    other_data,
+  });
+
+  res.status(200).json({ message: 'Report received' });
+});
+
+// --- Socket.IO Connection Handling ---
+io.on('connection', (socket) => {
+  console.log('🔌 A client connected to Socket.IO');
+
+  // Handle camera subscription
+  socket.on('subscribe_camera', (data) => {
+    if (data && data.cam_id) {
+      console.log(`📡 Client subscribed to camera: ${data.cam_id}`);
+      socket.join(data.cam_id); // Join a room based on camera ID
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('🔌 A client disconnected');
+  });
 });
 
 // --- Catch-all route to serve index.html for client-side routing ---
