@@ -8,15 +8,18 @@ import './App.css';
 import './Login.css';
 
 function App() {
-  // null, 'defence', 'offence', 'compare'
+  // null = ยังไม่ได้ login
+  // 'defence' = Defence Dashboard
+  // 'offence' = Offence Dashboard
+  // 'compare' = Compare View ใหม่
   const [dashboardType, setDashboardType] = useState(null);
 
   const handleLogout = () => {
     setDashboardType(null);
   };
 
-  // รับประเภท dashboard จากหน้า Login
   const handleLoginSuccess = (type) => {
+    // type จะเป็น 'defence' | 'offence' | 'compare'
     setDashboardType(type);
   };
 
@@ -32,7 +35,7 @@ function App() {
     return <CompareDashboard onLogout={handleLogout} />;
   }
 
-  // ยังไม่ login
+  // ยังไม่ login → แสดงหน้า Login
   return <Login onLoginSuccess={handleLoginSuccess} />;
 }
 
