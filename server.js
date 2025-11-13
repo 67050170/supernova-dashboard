@@ -43,6 +43,53 @@ const USERS = {
 };
 
 // --- API Routes ---
+// ✅ API สำหรับให้เพื่อนยิงข้อมูลเข้ามา โดยใช้ cameraId + token เดิมเหมือนตอน Login
+app.post('/api/friend-report', (req, res) => {
+  const { camera_id, token, other_data } = req.body;
+
+  // 1) เช็คว่ามี camera_id, token, other_data มั้ย
+  if (!camera_id || !token || !other_data) {
+    return res.status(400).json({ message: 'ต้องการ camera_id, token และ other_data' });
+  }
+
+  // 2) เช็คสิทธิ์จาก USERS (ใช้ token เดียวกับตอน login)
+  const user = USERS[camera_id];
+  if (!user || user.token !== token) {
+    return res.status(403).json({ message: 'Camera ID หรือ Token ไม่ถูกต้อง' });
+  }
+
+  // 3) ดึงข้อมูล object (เป้าหมาย/โดรน) จาก other_data
+  const { id, lat, lng, height, size, imageUrl, ...restOfData } = other_data;
+
+  if (id === undefined || lat === undefined || lng === undefined) {
+    return res.status(400).json({ message: 'other_data ต้องมี id, lat และ lng' });
+  }
+
+  // 4) ถ้าไม่มี imageUrl ให้เดาจาก size
+  const finalImageUrl = imageUrl || `/${size || 'default'}.png`;
+
+  // 5) payload ที่ frontend (Defence / AnotherDashboard) ใช้ได้ทันที
+  const payload = {
+    id,
+    lat,
+    lng,
+    height,
+    alt: height,               // ให้ alt = ความสูงเดียวกัน
+    size,
+    imageUrl: finalImageUrl,
+    ...restOfData,
+    camera_id,
+    timestamp: new Date(),
+  };
+
+  // 6) ส่งเข้า room ตาม camera_id (เหมือน /api/ai-data)
+  io.to(camera_id).emit('object_detection', payload);
+
+  console.log(`📩 Friend report from camera ${camera_id}:`, payload);
+
+  return res.status(200).json({ message: 'Report received' });
+});
+
 
 // Route สำหรับรับข้อมูลจาก AI
 // New endpoint to receive drone reports via POST
