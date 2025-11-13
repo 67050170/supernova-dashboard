@@ -3,10 +3,10 @@ import axios from 'axios';
 // --- 1. ตั้งค่าการทดสอบ ---
 
 // Token ที่ต้องตรงกับ .env ของ Server
-const SECRET_TOKEN = '8aaea353-fca3-45dc-93f2-213e7a798980'; // ⚠️ ใส่ Token จริงของคุณที่นี่
+const SECRET_TOKEN = '8af2ad37-da96-455e-880f-1778bfd6658d'; // ⚠️ ใส่ Token จริงของคุณที่นี่
 
 // ID ของกล้องที่จะส่งข้อมูลไป
-const CAMERA_ID_TO_TEST = '228594f4-edca-4027-9f8e-54c995240bc5'; // ⚠️ ตรวจสอบว่า ID นี้ถูกต้อง
+const CAMERA_ID_TO_TEST = 'a93479da-d106-481d-941c-dc1184fa69cc'; // ⚠️ ตรวจสอบว่า ID นี้ถูกต้อง
 
 // ID ของโดรน
 const DRONE_ID = 'drone-sim-001';

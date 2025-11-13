@@ -8,7 +8,7 @@ import './App.css';
 import './Login.css';
 
 function App() {
-  // สถานะจะเก็บประเภทของ dashboard ที่จะแสดง: null, 'defence', 'secondary'
+  // สถานะจะเก็บประเภทของ dashboard ที่จะแสดง: null, 'defence', 'offence'
   const [dashboardType, setDashboardType] = useState(null);
 
   const handleLogout = () => {
@@ -23,7 +23,7 @@ function App() {
   if (dashboardType === 'defence') {
     return <DefenceDashboard onLogout={handleLogout} />;
   }
-  if (dashboardType === 'secondary') {
+  if (dashboardType === 'offence') {
     return <AnotherDashboard onLogout={handleLogout} />;
   }
 

@@ -32,12 +32,12 @@ const SECRET_TOKEN_AI = process.env.SECRET_TOKEN_AI;
 
 // ข้อมูลผู้ใช้สำหรับล็อกอิน (ย้ายมาจาก Frontend)
 const USERS = {
-  'a8dd6071-9a67-49f6-abdf-e97239e46e13': {
-    token: '7d705f67-47e6-479c-972b-5d0d37784bcd',
+  '9d7d4113-7a56-4298-8fb2-c71c4bcc0187': {
+    token: 'ff8b6d81-bbf6-40b2-90de-5e392d77e348',
     dashboard: 'offence' // offence dashboard
   },
-  '228594f4-edca-4027-9f8e-54c995240bc5': {
-    token: '8aaea353-fca3-45dc-93f2-213e7a798980',
+  'a93479da-d106-481d-941c-dc1184fa69cc': {
+    token: '8af2ad37-da96-455e-880f-1778bfd6658d',
     dashboard: 'defence' // defence dashboard
   }
 };
@@ -45,22 +45,47 @@ const USERS = {
 // --- API Routes ---
 
 // Route สำหรับรับข้อมูลจาก AI
-app.post('/api/ai-data', (req, res) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.startsWith('Bearer ') 
-    ? authHeader.split(' ')[1] 
-    : null;
+// New endpoint to receive drone reports via POST
+app.post('/api/report', (req, res) => {
+  const { camera_id, other_data } = req.body;
 
-  if (!token || token !== SECRET_TOKEN_AI) {
-    return res.status(403).json({ message: 'Token ไม่ถูกต้อง' });
+  // เช็คว่ามี camera_id และ other_data.id มั้ย
+  if (!camera_id || !other_data || !other_data.id) {
+    return res.status(400).json({ message: 'Missing camera_id or other_data' });
   }
 
-  try {
-    const { camera_id, other_data } = req.body; // other_data is expected to contain drone info
+  console.log(`Received API report for camera ${camera_id}:`, other_data);
 
-    if (!camera_id || !other_data) {
-      return res.status(400).json({ message: 'ข้อมูลไม่ครบถ้วน, ต้องการ camera_id และ other_data' });
-    }
+  // ดึงค่าที่ต้องใช้จาก other_data
+  const { id, lat, lng, height, size, imageUrl, ...restOfData } = other_data;
+
+  if (id === undefined || lat === undefined || lng === undefined) {
+    return res.status(400).json({ message: 'ข้อมูล other_data ไม่ครบถ้วน, ต้องการ id, lat, และ lng' });
+  }
+
+  // ถ้าไม่มี imageUrl ให้ใช้ตาม size
+  const finalImageUrl = imageUrl || `/${size || 'default'}.png`;
+
+  // ทำ payload ให้เหมือนกับที่ frontend คาดหวัง
+  const payload = {
+    id,
+    lat,
+    lng,
+    height,
+    alt: height,   // 👈 ให้ฟิลด์ alt ใช้ความสูงเดียวกับ height
+    size,
+    imageUrl: finalImageUrl,
+    ...restOfData,
+    camera_id,
+    timestamp: new Date(),
+  };
+
+  // ส่งไปที่ห้อง camera_id เดียวกับ subscribe_camera
+  io.to(camera_id).emit('object_detection', payload);
+
+  res.status(200).json({ message: 'Report received' });
+});
+
 
     // Destructure drone data for clarity and validation
     const { id, lat, lng, height, size, imageUrl, ...restOfData } = other_data;
