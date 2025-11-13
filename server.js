@@ -93,6 +93,7 @@ app.post('/api/friend-report', (req, res) => {
 
 // Route สำหรับรับข้อมูลจาก AI
 // New endpoint to receive drone reports via POST
+// New endpoint to receive drone reports via POST
 app.post('/api/report', (req, res) => {
   const { camera_id, other_data } = req.body;
 
@@ -109,6 +110,30 @@ app.post('/api/report', (req, res) => {
   if (id === undefined || lat === undefined || lng === undefined) {
     return res.status(400).json({ message: 'ข้อมูล other_data ไม่ครบถ้วน, ต้องการ id, lat, และ lng' });
   }
+
+  // ถ้าไม่มี imageUrl ให้ใช้ตาม size
+  const finalImageUrl = imageUrl || `/${size || 'default'}.png`;
+
+  // ทำ payload ให้เหมือนกับที่ frontend คาดหวัง
+  const payload = {
+    id,
+    lat,
+    lng,
+    height,
+    alt: height,   // 👈 ให้ฟิลด์ alt ใช้ความสูงเดียวกับ height
+    size,
+    imageUrl: finalImageUrl,
+    ...restOfData,
+    camera_id,
+    timestamp: new Date(),
+  };
+
+  // ส่งไปที่ห้อง camera_id เดียวกับ subscribe_camera
+  io.to(camera_id).emit('object_detection', payload);
+
+  res.status(200).json({ message: 'Report received' });
+});
+
 
   // ถ้าไม่มี imageUrl ให้ใช้ตาม size
   const finalImageUrl = imageUrl || `/${size || 'default'}.png`;
